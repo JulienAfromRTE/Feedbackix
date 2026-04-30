@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <h1>⚙️ Paramétrage</h1>
+        <p class="page-subtitle">Gérez les applications, catégories, versions et administrateurs</p>
+    </div>
+</div>
+
+<!-- Catégories par défaut -->
+<div class="card">
+    <h3>🏷️ Catégories par défaut (disponibles pour toutes les applications)</h3>
+    <div class="default-cats">
+        {% for cat in default_cats %}
+        <span class="cat-pill" style="background:{{ cat.color }}20;color:{{ cat.color }};border:1px solid {{ cat.color }}40">
+            ■ {{ cat.name }}
+        </span>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Applications -->
+<div class="card">
+    <div class="card-title-row">
+        <h3>📱 Applications ({{ apps_data|length }})</h3>
+        <button class="btn btn-primary" onclick="showNewAppModal()">+ Nouvelle application</button>
+    </div>
+
+    {% if apps_data %}
+    <div class="settings-apps">
+        {% for item in apps_data %}
+        <div class="settings-app">
+            <div class="settings-app-header" onclick="toggleApp({{ item.app.id }})">
+                <span class="sa-icon" style="background:{{ item.app.color }}20;color:{{ item.app.color }}">{{ item.app.icon }}</span>
+                <div class="sa-info">
+                    <strong>{{ item.app.name }}</strong>
+                    <span class="sa-meta">{{ item.categories|length }} catégorie(s) · {{ item.versions|length }} version(s) · {{ item.admins|length }} admin(s)</span>
+                </div>
+                <span class="sa-toggle" id="toggle-{{ item.app.id }}">▼</span>
+            </div>
+
+            <div class="settings-app-body" id="body-{{ item.app.id }}" style="display:none">
+                <!-- Tabs navigation -->
+                <div class="tabs" id="tabs-{{ item.app.id }}">
+                    <div class="tab active" onclick="showTab({{ item.app.id }}, 'info')">ℹ️ Infos</div>
+                    <div class="tab" onclick="showTab({{ item.app.id }}, 'cats')">🏷️ Catégories</div>
+                    <div class="tab" onclick="showTab({{ item.app.id }}, 'vers')">🚀 Versions</div>
+                    <div class="tab" onclick="showTab({{ item.app.id }}, 'adm')">👥 Admins</div>
+                </div>
+
+                <!-- Tab Infos -->
+                <div class="tab-panel" id="tab-info-{{ item.app.id }}">
+                    <form method="post" action="{{ url_for('settings_app_edit', aid=item.app.id) }}">
+                        <div class="form-row-3">
+                            <div>
+                                <label>Nom</label>
+                                <input type="text" name="name" value="{{ item.app.name }}" required>
+                            </div>
+                            <div>
+                                <label>Icône (emoji)</label>
+                                <input type="text" name="icon" value="{{ item.app.icon }}" maxlength="4">
+                            </div>
+                            <div>
+                                <label>Couleur</label>
+                                <input type="color" name="color" value="{{ item.app.color }}" style="height:42px">
+                            </div>
+                        </div>
+                        <label>Description</label>
+                        <textarea name="description" rows="2">{{ item.app.description }}</textarea>
+                        <button type="submit" class="btn btn-primary btn-sm">💾 Enregistrer</button>
+                    </form>
+                    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+                        <form method="post" action="{{ url_for('settings_app_delete', aid=item.app.id) }}"
+                              onsubmit="return confirm('Supprimer \"{{ item.app.name }}\" et tous ses feedbacks ?')">
+                            <button type="submit" class="btn btn-danger btn-sm">🗑️ Supprimer cette application</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Tab Catégories -->
+                <div class="tab-panel" id="tab-cats-{{ item.app.id }}" style="display:none">
+                    <p class="info-note">Les catégories par défaut sont automatiquement disponibles. Ajoutez ici des catégories spécifiques à cette application.</p>
+                    {% if item.categories %}
+                    <table>
+                        <thead><tr><th>Catégorie</th><th>Couleur</th><th></th></tr></thead>
+                        <tbody>
+                        {% for cat in item.categories %}
+                        <tr>
+                            <td><span style="color:{{ cat.color }}">■</span> {{ cat.name }}</td>
+                            <td><span class="color-swatch" style="background:{{ cat.color }}"></span>{{ cat.color }}</td>
+                            <td>
+                                <form method="post" action="{{ url_for('settings_category_delete', aid=item.app.id, cid=cat.id) }}">
+                                    <button type="submit" class="btn btn-danger btn-xs">✕</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% endif %}
+                    <form method="post" action="{{ url_for('settings_category_new', aid=item.app.id) }}" class="inline-add-form">
+                        <input type="text" name="name" placeholder="Nom de la catégorie" required>
+                        <input type="color" name="color" value="#3b82f6" title="Couleur">
+                        <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
+                    </form>
+                </div>
+
+                <!-- Tab Versions -->
+                <div class="tab-panel" id="tab-vers-{{ item.app.id }}" style="display:none">
+                    <p class="info-note">Les feedbacks peuvent être associés à une version planifiée. Ils apparaissent dans le dashboard de l'application.</p>
+                    {% if item.versions %}
+                    <table>
+                        <thead><tr><th>Version</th><th>Date prévue</th><th>Description</th><th></th></tr></thead>
+                        <tbody>
+                        {% for v in item.versions %}
+                        <tr>
+                            <td><strong>{{ v.version_name }}</strong></td>
+                            <td>{{ v.release_date or '—' }}</td>
+                            <td>{{ v.description or '—' }}</td>
+                            <td>
+                                <form method="post" action="{{ url_for('settings_version_delete', aid=item.app.id, vid=v.id) }}">
+                                    <button type="submit" class="btn btn-danger btn-xs">✕</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% endif %}
+                    <form method="post" action="{{ url_for('settings_version_new', aid=item.app.id) }}" class="inline-add-form">
+                        <input type="text" name="version_name" placeholder="Ex : v2.5" required>
+                        <input type="date" name="release_date" title="Date de sortie prévue">
+                        <input type="text" name="description" placeholder="Description (optionnel)">
+                        <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
+                    </form>
+                </div>
+
+                <!-- Tab Admins -->
+                <div class="tab-panel" id="tab-adm-{{ item.app.id }}" style="display:none">
+                    <p class="info-note">Les administrateurs peuvent changer le statut des feedbacks. Le nom et le service doivent correspondre exactement à ce qui est saisi ici.</p>
+                    {% if item.admins %}
+                    <table>
+                        <thead><tr><th>Nom</th><th>Service</th><th></th></tr></thead>
+                        <tbody>
+                        {% for admin in item.admins %}
+                        <tr>
+                            <td><strong>{{ admin.name }}</strong></td>
+                            <td>{{ admin.service or '—' }}</td>
+                            <td>
+                                <form method="post" action="{{ url_for('settings_admin_delete', aid=item.app.id, adid=admin.id) }}">
+                                    <button type="submit" class="btn btn-danger btn-xs">✕</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="alert alert-warning">Aucun admin configuré. Sans admin, personne ne pourra changer les statuts des feedbacks.</div>
+                    {% endif %}
+                    <form method="post" action="{{ url_for('settings_admin_new', aid=item.app.id) }}" class="inline-add-form">
+                        <input type="text" name="name" placeholder="Nom" required>
+                        <input type="text" name="service" placeholder="Service" required>
+                        <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
+                    </form>
+                </div>
+
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state-sm">
+        <p>Aucune application configurée.</p>
+        <p style="color:var(--text-muted)">Cliquez sur "Nouvelle application" pour commencer.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Modal nouvelle application -->
+<div id="newAppModal" class="modal-overlay" style="display:none">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>➕ Nouvelle application</h3>
+            <button class="modal-close" onclick="closeNewAppModal()">✕</button>
+        </div>
+        <form method="post" action="{{ url_for('settings_app_new') }}">
+        <div class="modal-body">
+            <label>Nom de l'application *</label>
+            <input type="text" name="name" placeholder="Ex : Budgetix, Raccordix..." required>
+            <label>Description</label>
+            <textarea name="description" rows="2" placeholder="Description courte (optionnel)"></textarea>
+            <div class="form-row-2">
+                <div>
+                    <label>Icône (emoji)</label>
+                    <input type="text" name="icon" value="📱" maxlength="4">
+                </div>
+                <div>
+                    <label>Couleur principale</label>
+                    <input type="color" name="color" value="#3b82f6" style="height:42px">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="submit" class="btn btn-primary">Créer l'application</button>
+            <button type="button" class="btn btn-secondary" onclick="closeNewAppModal()">Annuler</button>
+        </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function showNewAppModal() {
+    document.getElementById('newAppModal').style.display = 'flex';
+}
+
+function closeNewAppModal() {
+    document.getElementById('newAppModal').style.display = 'none';
+}
+
+function toggleApp(appId) {
+    var body   = document.getElementById('body-' + appId);
+    var toggle = document.getElementById('toggle-' + appId);
+    var open   = body.style.display !== 'none';
+    body.style.display   = open ? 'none' : 'block';
+    toggle.textContent   = open ? '▼' : '▲';
+}
+
+function showTab(appId, tabName) {
+    var tabs   = ['info', 'cats', 'vers', 'adm'];
+    var tabBtns = document.querySelectorAll('#tabs-' + appId + ' .tab');
+    tabs.forEach(function(t, i) {
+        var panel = document.getElementById('tab-' + t + '-' + appId);
+        if (panel) panel.style.display = (t === tabName) ? 'block' : 'none';
+        if (tabBtns[i]) tabBtns[i].className = 'tab' + (t === tabName ? ' active' : '');
+    });
+}
+</script>
+{% endblock %}

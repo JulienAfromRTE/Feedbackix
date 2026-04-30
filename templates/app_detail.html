@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+{% block extra_head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+{% endblock %}
+
+{% block content %}
+
+<!-- En-tête application -->
+<div class="app-dashboard-header" style="border-left: 5px solid {{ app.color }}">
+    <div class="app-header-left">
+        <span class="app-icon-xl" style="background: {{ app.color }}20; color: {{ app.color }}">{{ app.icon }}</span>
+        <div>
+            <h1>{{ app.name }}</h1>
+            {% if app.description %}<p class="app-description">{{ app.description }}</p>{% endif %}
+        </div>
+    </div>
+    <div class="app-header-right">
+        <div class="rating-widget">
+            <div class="stars-display" id="headerStars">
+                {% for i in range(1, 6) %}
+                <span class="star-display {% if i <= avg_rating|round %}filled{% endif %}">★</span>
+                {% endfor %}
+            </div>
+            <p class="rating-summary">
+                <strong id="avgRatingVal">{{ avg_rating }}</strong>/5
+                (<span id="ratingCntVal">{{ rating_count }}</span> avis)
+            </p>
+            <button class="btn btn-secondary btn-sm" onclick="showRatingModal()">⭐ Donner mon avis</button>
+        </div>
+    </div>
+</div>
+
+<!-- Ligne de stats -->
+<div class="stats-row">
+    <div class="stat-card">
+        <span class="stat-big">{{ feedbacks|length }}</span>
+        <span class="stat-lbl">Feedbacks</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-big" style="color:#3b82f6">{{ feedbacks|selectattr('status','equalto','nouveau')|list|length }}</span>
+        <span class="stat-lbl">Nouveaux</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-big" style="color:#f59e0b">{{ feedbacks|selectattr('status','equalto','en_cours')|list|length }}</span>
+        <span class="stat-lbl">En cours</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-big" style="color:#10b981">{{ feedbacks|selectattr('status','equalto','traite')|list|length }}</span>
+        <span class="stat-lbl">Traités</span>
+    </div>
+</div>
+
+<!-- Grille dashboard : graphe + versions -->
+<div class="dashboard-grid">
+    <div class="card">
+        <h3>📈 Évolution de la note (12 mois)</h3>
+        {% if rating_history %}
+        <canvas id="ratingChart"></canvas>
+        {% else %}
+        <div class="empty-text-center">
+            <p>Aucune note enregistrée pour le moment.</p>
+            <p style="color:var(--text-muted);font-size:0.85rem">Soyez le premier à évaluer cette application !</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h3>🚀 Prochaines versions</h3>
+        {% if versions %}
+            {% for v in versions %}
+            <div class="version-block">
+                <div class="version-block-header">
+                    <strong class="version-name">{{ v.version_name }}</strong>
+                    {% if v.release_date %}<span class="version-date">📅 {{ v.release_date }}</span>{% endif %}
+                </div>
+                {% if v.description %}<p class="version-desc">{{ v.description }}</p>{% endif %}
+                {% if version_feedbacks[v.id] %}
+                <div class="version-fb-list">
+                    {% for fb in version_feedbacks[v.id] %}
+                    <a href="{{ url_for('feedback_detail', slug=app.slug, fid=fb.id) }}" class="version-fb-link">
+                        <span class="status-dot-sm status-{{ fb.status }}"></span>
+                        <span>{{ fb.title }}</span>
+                        <span class="vote-pill">👍 {{ fb.vote_count }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="empty-text-small">Aucun feedback lié.</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+        <p class="empty-text">Aucune version planifiée.<br>
+            <a href="{{ url_for('settings') }}">Configurer les versions →</a>
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Liste des feedbacks -->
+<div class="card">
+    <div class="card-title-row">
+        <h3>💬 Feedbacks</h3>
+        <a href="{{ url_for('feedback_new', slug=app.slug) }}" class="btn btn-primary">+ Nouveau feedback</a>
+    </div>
+
+    <!-- Filtres -->
+    <form method="get" id="filterForm" class="filters-bar">
+        <select name="status" onchange="document.getElementById('filterForm').submit()">
+            <option value="">Tous les statuts</option>
+            {% for key, (label, color) in STATUS_LABELS.items() %}
+            <option value="{{ key }}" {% if status_filter == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <select name="category" onchange="document.getElementById('filterForm').submit()">
+            <option value="">Toutes catégories</option>
+            {% for cat in categories %}
+            <option value="{{ cat.id }}" {% if cat_filter == cat.id|string %}selected{% endif %}>{{ cat.name }}</option>
+            {% endfor %}
+        </select>
+        <select name="priority" onchange="document.getElementById('filterForm').submit()">
+            <option value="">Toutes priorités</option>
+            {% for key, (label, color) in PRIORITY_LABELS.items() %}
+            <option value="{{ key }}" {% if priority_filter == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <select name="sort" onchange="document.getElementById('filterForm').submit()">
+            <option value="votes"    {% if sort_by == 'votes' %}selected{% endif %}>🏆 Par votes</option>
+            <option value="date"     {% if sort_by == 'date' %}selected{% endif %}>🕐 Par date</option>
+            <option value="priority" {% if sort_by == 'priority' %}selected{% endif %}>🔥 Par priorité</option>
+        </select>
+        {% if status_filter or cat_filter or priority_filter %}
+        <a href="{{ url_for('app_detail', slug=app.slug) }}" class="btn btn-secondary btn-sm">✕ Reset</a>
+        {% endif %}
+    </form>
+
+    {% if feedbacks %}
+    <div class="feedback-list">
+        {% for fb in feedbacks %}
+        <div class="feedback-row">
+            <!-- Colonne vote -->
+            <div class="vote-col">
+                <button class="vote-btn {% if fb.id in voted_ids %}voted{% endif %}"
+                        data-fid="{{ fb.id }}"
+                        {% if fb.id in voted_ids %}disabled title="Déjà voté"{% endif %}
+                        onclick="voteFromList(this, {{ fb.id }})">
+                    👍
+                </button>
+                <span class="vote-num" id="votes-{{ fb.id }}">{{ fb.vote_count }}</span>
+            </div>
+            <!-- Contenu -->
+            <div class="feedback-body">
+                <div class="feedback-badges">
+                    {% if fb.cat_name %}
+                    <span class="badge cat-badge" style="background:{{ fb.cat_color }}20;color:{{ fb.cat_color }};border:1px solid {{ fb.cat_color }}40">{{ fb.cat_name }}</span>
+                    {% endif %}
+                    <span class="badge priority-badge priority-{{ fb.priority }}">{{ PRIORITY_LABELS[fb.priority][0] }}</span>
+                    <span class="badge status-badge status-{{ fb.status }}">{{ STATUS_LABELS[fb.status][0] }}</span>
+                </div>
+                <a href="{{ url_for('feedback_detail', slug=app.slug, fid=fb.id) }}" class="feedback-title-link">{{ fb.title }}</a>
+                <div class="feedback-meta-line">
+                    {% if fb.is_anonymous %}
+                    <span>👤 Anonyme</span>
+                    {% else %}
+                    <span>👤 {{ fb.author_name }}{% if fb.author_service %} · {{ fb.author_service }}{% endif %}</span>
+                    {% endif %}
+                    <span>📅 {{ fb.created_at[:10] }}</span>
+                    {% if fb.comment_count > 0 %}
+                    <span>💬 {{ fb.comment_count }} commentaire{{ 's' if fb.comment_count > 1 else '' }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state-sm">
+        <p>Aucun feedback{% if status_filter or cat_filter or priority_filter %} pour ces filtres{% endif %}.</p>
+        <a href="{{ url_for('feedback_new', slug=app.slug) }}" class="btn btn-primary btn-sm">Soumettre le premier feedback</a>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Modal notation -->
+<div id="ratingModal" class="modal-overlay" style="display:none">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>⭐ Évaluer {{ app.name }}</h3>
+            <button class="modal-close" onclick="closeRatingModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="text-align:center;margin-bottom:12px;color:var(--text-muted)">Cliquez sur une étoile pour noter</p>
+            <div class="stars-picker" id="starsPicker">
+                <span class="star-pick" data-val="1" onmouseenter="hlStars(1)" onmouseleave="resetStars()" onclick="pickStar(1)">★</span>
+                <span class="star-pick" data-val="2" onmouseenter="hlStars(2)" onmouseleave="resetStars()" onclick="pickStar(2)">★</span>
+                <span class="star-pick" data-val="3" onmouseenter="hlStars(3)" onmouseleave="resetStars()" onclick="pickStar(3)">★</span>
+                <span class="star-pick" data-val="4" onmouseenter="hlStars(4)" onmouseleave="resetStars()" onclick="pickStar(4)">★</span>
+                <span class="star-pick" data-val="5" onmouseenter="hlStars(5)" onmouseleave="resetStars()" onclick="pickStar(5)">★</span>
+            </div>
+            <input type="hidden" id="pickedStar" value="0">
+            <label>Votre nom (optionnel)</label>
+            <input type="text" id="raterName" placeholder="Votre nom">
+            <label>Votre service (optionnel)</label>
+            <input type="text" id="raterService" placeholder="Votre service">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="submitRating()">Envoyer mon avis</button>
+            <button class="btn btn-secondary" onclick="closeRatingModal()">Annuler</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+{% if rating_history %}
+<script>
+(function() {
+    var labels = [{% for r in rating_history %}"{{ r.month }}"{% if not loop.last %},{% endif %}{% endfor %}];
+    var data   = [{% for r in rating_history %}{{ r.avg_rating }}{% if not loop.last %},{% endif %}{% endfor %}];
+    var ctx = document.getElementById('ratingChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Note moyenne',
+                data: data,
+                borderColor: '{{ app.color }}',
+                backgroundColor: '{{ app.color }}22',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 5,
+                pointHoverRadius: 8,
+                pointBackgroundColor: '{{ app.color }}'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            aspectRatio: 2.2,
+            scales: {
+                y: { min: 0, max: 5, ticks: { stepSize: 1 } }
+            },
+            plugins: { legend: { display: false } }
+        }
+    });
+})();
+</script>
+{% endif %}
+
+<script>
+var pickedStarVal = 0;
+
+function showRatingModal() {
+    document.getElementById('ratingModal').style.display = 'flex';
+}
+
+function closeRatingModal() {
+    document.getElementById('ratingModal').style.display = 'none';
+}
+
+function hlStars(val) {
+    var stars = document.querySelectorAll('.star-pick');
+    stars.forEach(function(s, i) {
+        s.style.color = (i < val) ? '#f59e0b' : '#d1d5db';
+    });
+}
+
+function resetStars() {
+    hlStars(pickedStarVal);
+}
+
+function pickStar(val) {
+    pickedStarVal = val;
+    document.getElementById('pickedStar').value = val;
+    hlStars(val);
+}
+
+function submitRating() {
+    var rating = parseInt(document.getElementById('pickedStar').value);
+    if (!rating) { alert('Veuillez selectionner une note.'); return; }
+    var raterName    = document.getElementById('raterName').value;
+    var raterService = document.getElementById('raterService').value;
+    fetch('{{ url_for("rate_app", slug=app.slug) }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({rating: rating, rater_name: raterName, rater_service: raterService})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) {
+            document.getElementById('avgRatingVal').textContent = d.avg_rating;
+            document.getElementById('ratingCntVal').textContent = d.count;
+            closeRatingModal();
+            alert('Merci pour votre evaluation !');
+        } else {
+            alert(d.error || 'Erreur');
+        }
+    });
+}
+
+function voteFromList(btn, fid) {
+    fetch('{{ url_for("app_detail", slug=app.slug) }}/feedback/' + fid + '/vote', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) {
+            document.getElementById('votes-' + fid).textContent = d.vote_count;
+            btn.disabled = true;
+            btn.classList.add('voted');
+        } else {
+            alert(d.error || 'Erreur');
+        }
+    });
+}
+</script>
+{% endblock %}

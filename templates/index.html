@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <h1>📱 Applications suivies</h1>
+        <p class="page-subtitle">Sélectionnez une application pour consulter ou soumettre des feedbacks</p>
+    </div>
+</div>
+
+{% if apps %}
+<div class="apps-grid">
+    {% for app in apps %}
+    <div class="app-card" style="border-top: 4px solid {{ app.color }}">
+        <div class="app-card-header">
+            <span class="app-icon-badge" style="background: {{ app.color }}20; color: {{ app.color }}">{{ app.icon }}</span>
+            <div class="app-card-info">
+                <h2>{{ app.name }}</h2>
+                {% if app.description %}
+                <p class="app-description">{{ app.description }}</p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="app-card-stats">
+            <div class="app-stat">
+                <span class="stars-sm">
+                    {% for i in range(1, 6) %}
+                    <span class="star-sm {% if i <= app.avg_rating|round %}filled{% endif %}">★</span>
+                    {% endfor %}
+                </span>
+                <span class="stat-text">{{ app.avg_rating }}/5 · {{ app.rating_count }} avis</span>
+            </div>
+            <div class="app-stat">
+                <span class="stat-num">{{ app.feedback_count }}</span>
+                <span class="stat-text">feedbacks</span>
+            </div>
+        </div>
+        <a href="{{ url_for('app_detail', slug=app.slug) }}" class="btn btn-primary app-btn">
+            Voir les feedbacks →
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-icon">📭</div>
+    <h2>Aucune application configurée</h2>
+    <p>Commencez par ajouter vos applications dans le module de paramétrage.</p>
+    <a href="{{ url_for('settings') }}" class="btn btn-primary">⚙️ Aller au paramétrage</a>
+</div>
+{% endif %}
+
+{% endblock %}

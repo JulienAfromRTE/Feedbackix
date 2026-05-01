@@ -399,8 +399,9 @@ tr:hover td { background: #f8fafc; }
 
 /* --- Stars --- */
 .stars-sm { display: flex; gap: 2px; }
-.star-sm { font-size: 1rem; color: #d1d5db; }
+.star-sm { font-size: 1rem; color: #d1d5db; position: relative; display: inline-block; }
 .star-sm.filled { color: #f59e0b; }
+.star-sm.half::before { content: '★'; position: absolute; left: 0; top: 0; color: #f59e0b; clip-path: inset(0 50% 0 0); }
 
 /* --- App Dashboard Header --- */
 .app-dashboard-header {
@@ -436,8 +437,9 @@ tr:hover td { background: #f8fafc; }
 
 .rating-widget { text-align: center; }
 .stars-display { display: flex; gap: 4px; justify-content: center; margin-bottom: 6px; }
-.star-display { font-size: 1.5rem; color: #d1d5db; }
+.star-display { font-size: 1.5rem; color: #d1d5db; position: relative; display: inline-block; }
 .star-display.filled { color: #f59e0b; }
+.star-display.half::before { content: '★'; position: absolute; left: 0; top: 0; color: #f59e0b; clip-path: inset(0 50% 0 0); }
 .rating-summary { margin: 0 0 10px; font-size: 0.9rem; color: #64748b; }
 
 /* --- Stats Row --- */

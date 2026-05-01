@@ -74,6 +74,12 @@ DEFAULT_CATEGORIES = [
 def init_db():
     db = get_db()
 
+    db.execute("""CREATE TABLE IF NOT EXISTS app_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        sort_order INTEGER DEFAULT 0
+    )""")
+
     db.execute("""CREATE TABLE IF NOT EXISTS apps (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -81,6 +87,7 @@ def init_db():
         description TEXT DEFAULT '',
         icon TEXT DEFAULT '📱',
         color TEXT DEFAULT '#3b82f6',
+        group_id INTEGER REFERENCES app_groups(id) ON DELETE SET NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
@@ -158,11 +165,31 @@ def init_db():
         FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE
     )""")
 
+    db.execute("""CREATE TABLE IF NOT EXISTS feedback_edits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        feedback_id INTEGER NOT NULL,
+        editor_name TEXT NOT NULL,
+        editor_service TEXT DEFAULT '',
+        edited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        changed_fields TEXT NOT NULL,
+        FOREIGN KEY (feedback_id) REFERENCES feedbacks(id) ON DELETE CASCADE
+    )""")
+
     existing = db.execute("SELECT COUNT(*) as c FROM categories WHERE is_default=1").fetchone()['c']
     if existing == 0:
         for (name, color) in DEFAULT_CATEGORIES:
             db.execute("INSERT INTO categories (app_id, name, color, is_default) VALUES (NULL, ?, ?, 1)",
                        (name, color))
+
+    # Migrate: add group_id to apps if column doesn't exist yet
+    cols = [r[1] for r in db.execute("PRAGMA table_info(apps)").fetchall()]
+    if 'group_id' not in cols:
+        db.execute("ALTER TABLE apps ADD COLUMN group_id INTEGER REFERENCES app_groups(id) ON DELETE SET NULL")
+
+    existing_groups = db.execute("SELECT COUNT(*) as c FROM app_groups").fetchone()['c']
+    if existing_groups == 0:
+        for i, name in enumerate(['Finance', 'Industriel', 'Réseau', 'Marché']):
+            db.execute("INSERT INTO app_groups (name, sort_order) VALUES (?, ?)", (name, i))
 
     db.commit()
     db.close()
@@ -242,7 +269,9 @@ def slugify(text):
 @app.route('/')
 def index():
     db = get_db()
+    groups = db.execute("SELECT * FROM app_groups ORDER BY sort_order, name").fetchall()
     apps_raw = db.execute("SELECT * FROM apps ORDER BY name").fetchall()
+
     apps_data = []
     for a in apps_raw:
         avg, cnt = get_avg_rating(a['id'])
@@ -252,10 +281,22 @@ def index():
         apps_data.append({
             'id': a['id'], 'name': a['name'], 'slug': a['slug'],
             'description': a['description'], 'icon': a['icon'], 'color': a['color'],
+            'group_id': a['group_id'],
             'avg_rating': avg, 'rating_count': cnt, 'feedback_count': fb_count
         })
+
+    grouped = []
+    group_ids = {g['id']: g for g in groups}
+    seen = set()
+    for g in groups:
+        apps_in_group = [a for a in apps_data if a['group_id'] == g['id']]
+        if apps_in_group:
+            grouped.append({'group': g, 'apps': apps_in_group})
+        seen.update(a['id'] for a in apps_in_group)
+    ungrouped = [a for a in apps_data if a['id'] not in seen]
+
     db.close()
-    return render_template('index.html', apps=apps_data,
+    return render_template('index.html', grouped=grouped, ungrouped=ungrouped, apps=apps_data,
                            APP_NAME=APP_NAME, APP_RELEASE=APP_RELEASE, APP_ICON=APP_ICON)
 
 
@@ -283,9 +324,12 @@ def app_detail(slug):
     sort_by         = request.args.get('sort', 'votes')
 
     query = """SELECT f.*, c.name as cat_name, c.color as cat_color,
+                      v.version_name as planned_version,
+                      v.release_date as planned_release_date,
                       COUNT(cm.id) as comment_count
                FROM feedbacks f
                LEFT JOIN categories c ON c.id = f.category_id
+               LEFT JOIN versions v ON v.id = f.version_id
                LEFT JOIN comments cm ON cm.feedback_id = f.id
                WHERE f.app_id=?"""
     params = [app_row['id']]
@@ -348,35 +392,43 @@ def feedback_new(slug):
     ).fetchall()
     db.close()
 
+    form_data = {}
+
     if request.method == 'POST':
         title        = request.form.get('title', '').strip()
         content_html = request.form.get('content_html', '')
         category_id  = request.form.get('category_id') or None
         version_id   = request.form.get('version_id') or None
         priority     = request.form.get('priority', 'normale')
-        is_anonymous = 1 if request.form.get('is_anonymous') else 0
-        author_name  = request.form.get('author_name', '').strip() if not is_anonymous else None
-        author_service = request.form.get('author_service', '').strip() if not is_anonymous else None
+        author_name    = request.form.get('author_name', '').strip()
+        author_service = request.form.get('author_service', '').strip()
+
+        form_data = {
+            'title': title, 'content_html': content_html,
+            'category_id': category_id, 'version_id': version_id,
+            'priority': priority,
+            'author_name': author_name, 'author_service': author_service,
+        }
 
         if not title:
             flash('Le titre est obligatoire.', 'error')
-        elif not is_anonymous and not author_name:
-            flash('Le nom est obligatoire pour un feedback nominatif.', 'error')
+        elif not author_name:
+            flash('Le nom est obligatoire.', 'error')
         else:
             db = get_db()
             db.execute("""INSERT INTO feedbacks
                 (app_id, category_id, version_id, title, content_html,
                  author_name, author_service, is_anonymous, priority, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'nouveau')""",
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'nouveau')""",
                 (app_row['id'], category_id, version_id, title, content_html,
-                 author_name, author_service, is_anonymous, priority))
+                 author_name, author_service, priority))
             db.commit()
             db.close()
             flash('Feedback soumis avec succes !', 'success')
             return redirect(url_for('app_detail', slug=slug))
 
     return render_template('feedback_new.html',
-        app=app_row, categories=categories, versions=versions,
+        app=app_row, categories=categories, versions=versions, form_data=form_data,
         APP_NAME=APP_NAME, APP_RELEASE=APP_RELEASE, APP_ICON=APP_ICON)
 
 
@@ -425,6 +477,10 @@ def feedback_detail(slug, fid):
         "SELECT * FROM comments WHERE feedback_id=? ORDER BY created_at ASC", (fid,)
     ).fetchall()
 
+    edits = db.execute(
+        "SELECT * FROM feedback_edits WHERE feedback_id=? ORDER BY edited_at ASC", (fid,)
+    ).fetchall()
+
     voter_ip = request.remote_addr
     already_voted = db.execute(
         "SELECT id FROM feedback_votes WHERE feedback_id=? AND voter_ip=?",
@@ -433,9 +489,77 @@ def feedback_detail(slug, fid):
 
     db.close()
     return render_template('feedback_detail.html',
-        app=app_row, feedback=feedback, comments=comments,
+        app=app_row, feedback=feedback, comments=comments, edits=edits,
         already_voted=already_voted,
         STATUS_LABELS=STATUS_LABELS, PRIORITY_LABELS=PRIORITY_LABELS,
+        APP_NAME=APP_NAME, APP_RELEASE=APP_RELEASE, APP_ICON=APP_ICON)
+
+
+@app.route('/app/<slug>/feedback/<int:fid>/edit', methods=['GET', 'POST'])
+def feedback_edit(slug, fid):
+    app_row = get_app_by_slug(slug)
+    if not app_row:
+        abort(404)
+
+    db = get_db()
+    feedback = db.execute(
+        "SELECT * FROM feedbacks WHERE id=? AND app_id=?", (fid, app_row['id'])
+    ).fetchone()
+    if not feedback:
+        db.close()
+        abort(404)
+
+    categories = get_app_categories(app_row['id'])
+    versions = db.execute(
+        "SELECT * FROM versions WHERE app_id=? ORDER BY release_date", (app_row['id'],)
+    ).fetchall()
+
+    if request.method == 'POST':
+        title        = request.form.get('title', '').strip()
+        content_html = request.form.get('content_html', '')
+        category_id  = request.form.get('category_id') or None
+        version_id   = request.form.get('version_id') or None
+        priority     = request.form.get('priority', feedback['priority'])
+        editor_name    = request.form.get('editor_name', '').strip()
+        editor_service = request.form.get('editor_service', '').strip()
+
+        if not title:
+            flash('Le titre est obligatoire.', 'error')
+        elif not editor_name:
+            flash('Votre nom est obligatoire pour tracer la modification.', 'error')
+        else:
+            changed = []
+            if title != feedback['title']:
+                changed.append('titre')
+            if content_html != feedback['content_html']:
+                changed.append('contenu')
+            if str(category_id or '') != str(feedback['category_id'] or ''):
+                changed.append('catégorie')
+            if priority != feedback['priority']:
+                changed.append('priorité')
+            if str(version_id or '') != str(feedback['version_id'] or ''):
+                changed.append('version')
+
+            db.execute("""UPDATE feedbacks
+                SET title=?, content_html=?, category_id=?, version_id=?, priority=?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?""",
+                (title, content_html, category_id, version_id, priority, fid))
+
+            if changed:
+                db.execute("""INSERT INTO feedback_edits
+                    (feedback_id, editor_name, editor_service, changed_fields)
+                    VALUES (?, ?, ?, ?)""",
+                    (fid, editor_name, editor_service, ', '.join(changed)))
+
+            db.commit()
+            db.close()
+            flash('Feedback mis à jour.', 'success')
+            return redirect(url_for('feedback_detail', slug=slug, fid=fid))
+
+    db.close()
+    return render_template('feedback_edit.html',
+        app=app_row, feedback=feedback, categories=categories, versions=versions,
         APP_NAME=APP_NAME, APP_RELEASE=APP_RELEASE, APP_ICON=APP_ICON)
 
 
@@ -481,28 +605,13 @@ def add_comment(slug, fid):
 
 @app.route('/app/<slug>/feedback/<int:fid>/status', methods=['POST'])
 def change_status(slug, fid):
-    app_row = get_app_by_slug(slug)
-    if not app_row:
-        return jsonify({'error': 'App non trouvee'}), 404
-
     data = request.get_json() or {}
-    admin_name    = data.get('admin_name', '').strip()
-    admin_service = data.get('admin_service', '').strip()
-    new_status    = data.get('status', '')
+    new_status = data.get('status', '')
 
     if new_status not in STATUS_LABELS:
         return jsonify({'error': 'Statut invalide'}), 400
 
     db = get_db()
-    admin = db.execute("""SELECT id FROM app_admins
-        WHERE app_id=? AND LOWER(TRIM(name))=LOWER(TRIM(?))
-          AND LOWER(TRIM(service))=LOWER(TRIM(?))""",
-        (app_row['id'], admin_name, admin_service)).fetchone()
-
-    if not admin:
-        db.close()
-        return jsonify({'error': "Acces refuse : vous n'etes pas admin de cette application"}), 403
-
     db.execute("UPDATE feedbacks SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                (new_status, fid))
     db.commit()
@@ -545,17 +654,17 @@ def rate_app(slug):
 @app.route('/settings')
 def settings():
     db = get_db()
+    groups   = db.execute("SELECT * FROM app_groups ORDER BY sort_order, name").fetchall()
     apps_raw = db.execute("SELECT * FROM apps ORDER BY name").fetchall()
     apps_data = []
     for a in apps_raw:
         cats     = db.execute("SELECT * FROM categories WHERE app_id=? ORDER BY name", (a['id'],)).fetchall()
         versions = db.execute("SELECT * FROM versions WHERE app_id=? ORDER BY release_date", (a['id'],)).fetchall()
-        admins   = db.execute("SELECT * FROM app_admins WHERE app_id=?", (a['id'],)).fetchall()
-        apps_data.append({'app': a, 'categories': cats, 'versions': versions, 'admins': admins})
+        apps_data.append({'app': a, 'categories': cats, 'versions': versions})
     default_cats = db.execute("SELECT * FROM categories WHERE app_id IS NULL ORDER BY name").fetchall()
     db.close()
     return render_template('settings.html',
-        apps_data=apps_data, default_cats=default_cats,
+        apps_data=apps_data, default_cats=default_cats, groups=groups,
         APP_NAME=APP_NAME, APP_RELEASE=APP_RELEASE, APP_ICON=APP_ICON)
 
 
@@ -565,6 +674,7 @@ def settings_app_new():
     description = request.form.get('description', '').strip()
     icon        = request.form.get('icon', '📱').strip() or '📱'
     color       = request.form.get('color', '#3b82f6').strip()
+    group_id    = request.form.get('group_id') or None
     if not name:
         flash('Le nom est obligatoire.', 'error')
         return redirect(url_for('settings'))
@@ -573,8 +683,8 @@ def settings_app_new():
     i = 1
     while db.execute("SELECT id FROM apps WHERE slug=?", (slug,)).fetchone():
         slug = f"{base}-{i}"; i += 1
-    db.execute("INSERT INTO apps (name, slug, description, icon, color) VALUES (?, ?, ?, ?, ?)",
-               (name, slug, description, icon, color))
+    db.execute("INSERT INTO apps (name, slug, description, icon, color, group_id) VALUES (?, ?, ?, ?, ?, ?)",
+               (name, slug, description, icon, color, group_id))
     db.commit(); db.close()
     flash(f'Application "{name}" creee !', 'success')
     return redirect(url_for('settings'))
@@ -586,9 +696,10 @@ def settings_app_edit(aid):
     description = request.form.get('description', '').strip()
     icon        = request.form.get('icon', '📱').strip() or '📱'
     color       = request.form.get('color', '#3b82f6').strip()
+    group_id    = request.form.get('group_id') or None
     db = get_db()
-    db.execute("UPDATE apps SET name=?, description=?, icon=?, color=? WHERE id=?",
-               (name, description, icon, color, aid))
+    db.execute("UPDATE apps SET name=?, description=?, icon=?, color=?, group_id=? WHERE id=?",
+               (name, description, icon, color, group_id, aid))
     db.commit(); db.close()
     flash('Application mise a jour.', 'success')
     return redirect(url_for('settings'))
@@ -655,26 +766,32 @@ def settings_version_delete(aid, vid):
     return redirect(url_for('settings'))
 
 
-@app.route('/settings/apps/<int:aid>/admins/new', methods=['POST'])
-def settings_admin_new(aid):
-    name    = request.form.get('name', '').strip()
-    service = request.form.get('service', '').strip()
+
+@app.route('/settings/groups/new', methods=['POST'])
+def settings_group_new():
+    name = request.form.get('name', '').strip()
     if not name:
         flash('Le nom est obligatoire.', 'error')
         return redirect(url_for('settings'))
     db = get_db()
-    db.execute("INSERT INTO app_admins (app_id, name, service) VALUES (?, ?, ?)", (aid, name, service))
-    db.commit(); db.close()
-    flash(f'Admin "{name}" ajoute.', 'success')
+    try:
+        count = db.execute("SELECT COUNT(*) as c FROM app_groups").fetchone()['c']
+        db.execute("INSERT INTO app_groups (name, sort_order) VALUES (?, ?)", (name, count))
+        db.commit()
+        flash(f'Groupe "{name}" créé.', 'success')
+    except Exception:
+        flash(f'Un groupe "{name}" existe déjà.', 'error')
+    db.close()
     return redirect(url_for('settings'))
 
 
-@app.route('/settings/apps/<int:aid>/admins/<int:adid>/delete', methods=['POST'])
-def settings_admin_delete(aid, adid):
+@app.route('/settings/groups/<int:gid>/delete', methods=['POST'])
+def settings_group_delete(gid):
     db = get_db()
-    db.execute("DELETE FROM app_admins WHERE id=? AND app_id=?", (adid, aid))
+    db.execute("UPDATE apps SET group_id=NULL WHERE group_id=?", (gid,))
+    db.execute("DELETE FROM app_groups WHERE id=?", (gid,))
     db.commit(); db.close()
-    flash('Admin supprime.', 'success')
+    flash('Groupe supprimé.', 'success')
     return redirect(url_for('settings'))
 
 

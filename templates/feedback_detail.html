@@ -20,10 +20,25 @@
             {% if feedback.cat_name %}
             <span class="badge cat-badge" style="background:{{ feedback.cat_color }}20;color:{{ feedback.cat_color }};border:1px solid {{ feedback.cat_color }}40">{{ feedback.cat_name }}</span>
             {% endif %}
-            <span class="badge priority-badge priority-{{ feedback.priority }}">{{ PRIORITY_LABELS[feedback.priority][0] }}</span>
-            <span class="badge status-badge status-{{ feedback.status }}" id="statusBadge">{{ STATUS_LABELS[feedback.status][0] }}</span>
+            {% set priority_icons = {'basse':'▽','normale':'▬','haute':'▲','critique':'🔥'} %}
+            {% set status_icons = {'nouveau':'✨','en_cours':'⏳','traite':'✓','en_attente':'⏸','abandonne':'✕'} %}
+            <div class="fc-labeled-badge">
+                <span class="fc-badge-label">Priorité</span>
+                <span class="badge priority-badge priority-{{ feedback.priority }}">
+                    <span class="badge-ico">{{ priority_icons[feedback.priority] }}</span>{{ PRIORITY_LABELS[feedback.priority][0] }}
+                </span>
+            </div>
+            <div class="fc-labeled-badge">
+                <span class="fc-badge-label">Statut</span>
+                <span class="badge status-badge status-{{ feedback.status }}" id="statusBadge">
+                    <span class="badge-ico">{{ status_icons[feedback.status] }}</span>{{ STATUS_LABELS[feedback.status][0] }}
+                </span>
+            </div>
             {% if feedback.planned_version %}
-            <span class="badge version-badge">🚀 {{ feedback.planned_version }}</span>
+            <div class="fc-labeled-badge">
+                <span class="fc-badge-label">Sera corrigé dans</span>
+                <span class="badge version-badge">🚀 {{ feedback.planned_version }}</span>
+            </div>
             {% endif %}
         </div>
         <div class="fd-actions">
@@ -34,6 +49,7 @@
                 👍 <span id="voteCount">{{ feedback.vote_count }}</span>
                 vote{{ 's' if feedback.vote_count != 1 else '' }}
             </button>
+            <a href="{{ url_for('feedback_edit', slug=app.slug, fid=feedback.id) }}" class="btn btn-secondary btn-sm">✏️ Modifier</a>
             <button class="btn btn-secondary btn-sm" onclick="showStatusModal()">🔄 Changer statut</button>
         </div>
     </div>
@@ -41,12 +57,8 @@
     <h1 class="fd-title">{{ feedback.title }}</h1>
 
     <p class="fd-author">
-        {% if feedback.is_anonymous %}
-        👤 <em>Anonyme</em>
-        {% else %}
-        👤 <strong>{{ feedback.author_name }}</strong>
+        👤 <strong>{{ feedback.author_name or 'Anonyme' }}</strong>
         {% if feedback.author_service %} · {{ feedback.author_service }}{% endif %}
-        {% endif %}
         <span class="fd-date"> · {{ feedback.created_at[:10] }}</span>
         {% if feedback.updated_at and feedback.updated_at != feedback.created_at %}
         <span class="fd-date"> · mis à jour le {{ feedback.updated_at[:10] }}</span>
@@ -99,6 +111,25 @@
     </div>
 </div>
 
+<!-- Historique des modifications -->
+{% if edits %}
+<div class="card edit-history-card">
+    <h3>✏️ Historique des modifications <span class="count-badge">{{ edits|length }}</span></h3>
+    <div class="edit-history-list">
+        {% for e in edits %}
+        <div class="edit-history-item">
+            <span class="edit-history-icon">✏️</span>
+            <div class="edit-history-body">
+                <strong>{{ e.editor_name }}</strong>{% if e.editor_service %} · <span class="comment-svc">{{ e.editor_service }}</span>{% endif %}
+                a modifié <em>{{ e.changed_fields }}</em>
+                <span class="comment-date">· {{ e.edited_at[:10] }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Modal changement de statut -->
 <div id="statusModal" class="modal-overlay" style="display:none">
     <div class="modal">
@@ -107,14 +138,6 @@
             <button class="modal-close" onclick="closeStatusModal()">✕</button>
         </div>
         <div class="modal-body">
-            <div class="alert alert-info" style="margin-bottom:16px">
-                🔒 Cette action est réservée aux <strong>administrateurs</strong> de l'application.<br>
-                Saisissez votre nom et service exactement tels qu'ils ont été enregistrés.
-            </div>
-            <label>Votre nom</label>
-            <input type="text" id="adminName" placeholder="Nom de l'administrateur">
-            <label>Votre service</label>
-            <input type="text" id="adminService" placeholder="Service de l'administrateur">
             <label>Nouveau statut</label>
             <select id="newStatus">
                 {% for key, (label, color) in STATUS_LABELS.items() %}
@@ -133,6 +156,14 @@
 
 {% block extra_scripts %}
 <script>
+document.addEventListener('DOMContentLoaded', function() {
+    var id = getIdentity();
+    if (id) {
+        document.getElementById('cmtName').value = id.name;
+        document.getElementById('cmtService').value = id.service || '';
+    }
+});
+
 function submitVote() {
     fetch('{{ url_for("vote_feedback", slug=app.slug, fid=feedback.id) }}', {
         method: 'POST',
@@ -150,10 +181,12 @@ function submitVote() {
 }
 
 function submitComment() {
-    var name    = document.getElementById('cmtName').value.trim();
+    var nameEl = document.getElementById('cmtName');
+    var name    = nameEl.value.trim();
     var service = document.getElementById('cmtService').value.trim();
     var content = document.getElementById('cmtContent').value.trim();
-    if (!name || !content) { alert('Le nom et le commentaire sont obligatoires.'); return; }
+    if (!name) { nameEl.focus(); alert('Le nom est obligatoire.'); return; }
+    if (!content) { document.getElementById('cmtContent').focus(); return; }
     fetch('{{ url_for("add_comment", slug=app.slug, fid=feedback.id) }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -173,14 +206,11 @@ function closeStatusModal() {
 }
 
 function submitStatusChange() {
-    var adminName    = document.getElementById('adminName').value.trim();
-    var adminService = document.getElementById('adminService').value.trim();
-    var newStatus    = document.getElementById('newStatus').value;
-    if (!adminName || !adminService) { alert('Nom et service obligatoires.'); return; }
+    var newStatus = document.getElementById('newStatus').value;
     fetch('{{ url_for("change_status", slug=app.slug, fid=feedback.id) }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({admin_name: adminName, admin_service: adminService, status: newStatus})
+        body: JSON.stringify({status: newStatus})
     }).then(function(r) { return r.json(); }).then(function(d) {
         if (d.success) {
             var badge = document.getElementById('statusBadge');

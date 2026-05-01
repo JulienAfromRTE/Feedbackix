@@ -7,18 +7,22 @@
 {% block content %}
 
 <div class="breadcrumb">
+    <a href="{{ url_for('index') }}">Accueil</a>
+    <span class="bc-sep">›</span>
     <a href="{{ url_for('app_detail', slug=app.slug) }}">{{ app.icon }} {{ app.name }}</a>
     <span class="bc-sep">›</span>
-    <span>Nouveau feedback</span>
+    <a href="{{ url_for('feedback_detail', slug=app.slug, fid=feedback.id) }}">Feedback #{{ feedback.id }}</a>
+    <span class="bc-sep">›</span>
+    <span>Modifier</span>
 </div>
 
 <div class="card">
-    <h2>💬 Nouveau feedback</h2>
+    <h2>✏️ Modifier le feedback</h2>
 
     <form method="post" id="feedbackForm">
 
         <label>Titre du feedback *</label>
-        <input type="text" name="title" placeholder="Décrivez brièvement votre remarque..." value="{{ form_data.title or '' }}" required>
+        <input type="text" name="title" placeholder="Décrivez brièvement votre remarque..." value="{{ feedback.title }}" required>
 
         <div class="form-row-3">
             <div>
@@ -26,18 +30,17 @@
                 <select name="category_id">
                     <option value="">— Aucune —</option>
                     {% for cat in categories %}
-                    <option value="{{ cat.id }}" {% if form_data.category_id == cat.id|string %}selected{% endif %}>{{ cat.name }}</option>
+                    <option value="{{ cat.id }}" {% if feedback.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
                     {% endfor %}
                 </select>
             </div>
             <div>
                 <label>Priorité</label>
                 <select name="priority">
-                    {% set p = form_data.priority or 'normale' %}
-                    <option value="basse"    {% if p == 'basse' %}selected{% endif %}>🟢 Basse</option>
-                    <option value="normale"  {% if p == 'normale' %}selected{% endif %}>🔵 Normale</option>
-                    <option value="haute"    {% if p == 'haute' %}selected{% endif %}>🟡 Haute</option>
-                    <option value="critique" {% if p == 'critique' %}selected{% endif %}>🔴 Critique</option>
+                    <option value="basse"    {% if feedback.priority == 'basse' %}selected{% endif %}>🟢 Basse</option>
+                    <option value="normale"  {% if feedback.priority == 'normale' %}selected{% endif %}>🔵 Normale</option>
+                    <option value="haute"    {% if feedback.priority == 'haute' %}selected{% endif %}>🟡 Haute</option>
+                    <option value="critique" {% if feedback.priority == 'critique' %}selected{% endif %}>🔴 Critique</option>
                 </select>
             </div>
             {% if versions %}
@@ -46,7 +49,7 @@
                 <select name="version_id">
                     <option value="">— Non planifié —</option>
                     {% for v in versions %}
-                    <option value="{{ v.id }}" {% if form_data.version_id == v.id|string %}selected{% endif %}>{{ v.version_name }}{% if v.release_date %} ({{ v.release_date }}){% endif %}</option>
+                    <option value="{{ v.id }}" {% if feedback.version_id == v.id %}selected{% endif %}>{{ v.version_name }}{% if v.release_date %} ({{ v.release_date }}){% endif %}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -56,24 +59,28 @@
         <label>Description détaillée</label>
         <div id="quillEditor"></div>
         <input type="hidden" name="content_html" id="contentHtml">
-        <script id="initialContentHtml" type="text/html">{{ form_data.content_html | safe if form_data.content_html else '' }}</script>
+        <script id="initialContentHtml" type="text/html">{{ feedback.content_html | safe if feedback.content_html else '' }}</script>
 
         <div class="form-divider"></div>
+
+        <div class="alert alert-info" style="margin-bottom:16px">
+            ✏️ Identifiez-vous pour tracer la modification dans l'historique.
+        </div>
 
         <div class="form-row-2">
             <div>
                 <label>Votre nom *</label>
-                <input type="text" name="author_name" id="authorName" placeholder="Prénom Nom" value="{{ form_data.author_name or '' }}" required>
+                <input type="text" name="editor_name" id="editorName" placeholder="Prénom Nom" required>
             </div>
             <div>
                 <label>Votre service</label>
-                <input type="text" name="author_service" id="authorService" placeholder="Ex : DSIT, Comptabilité, RH..." value="{{ form_data.author_service or '' }}">
+                <input type="text" name="editor_service" id="editorService" placeholder="Ex : DSIT, Comptabilité, RH...">
             </div>
         </div>
 
         <div class="form-actions">
-            <button type="submit" class="btn btn-primary">✉️ Soumettre le feedback</button>
-            <a href="{{ url_for('app_detail', slug=app.slug) }}" class="btn btn-secondary">Annuler</a>
+            <button type="submit" class="btn btn-primary">💾 Enregistrer les modifications</button>
+            <a href="{{ url_for('feedback_detail', slug=app.slug, fid=feedback.id) }}" class="btn btn-secondary">Annuler</a>
         </div>
     </form>
 </div>
@@ -84,7 +91,7 @@
 <script>
 var quill = new Quill('#quillEditor', {
     theme: 'snow',
-    placeholder: 'Décrivez votre feedback en détail. Vous pouvez mettre en forme le texte et insérer des images...',
+    placeholder: 'Décrivez votre feedback en détail...',
     modules: {
         toolbar: {
             container: [
@@ -131,12 +138,10 @@ document.getElementById('feedbackForm').addEventListener('submit', function() {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    if (!document.getElementById('authorName').value) {
-        var id = getIdentity();
-        if (id) {
-            document.getElementById('authorName').value = id.name;
-            document.getElementById('authorService').value = id.service || '';
-        }
+    var id = getIdentity();
+    if (id) {
+        document.getElementById('editorName').value = id.name;
+        document.getElementById('editorService').value = id.service || '';
     }
 });
 </script>

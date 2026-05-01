@@ -4,7 +4,7 @@
 <div class="page-header">
     <div>
         <h1>⚙️ Paramétrage</h1>
-        <p class="page-subtitle">Gérez les applications, catégories, versions et administrateurs</p>
+        <p class="page-subtitle">Gérez les applications, catégories et versions</p>
     </div>
 </div>
 
@@ -18,6 +18,34 @@
         </span>
         {% endfor %}
     </div>
+</div>
+
+<!-- Groupes d'applications -->
+<div class="card">
+    <h3>🗂️ Groupes d'applications</h3>
+    <p class="info-note" style="margin-bottom:12px">Organisez vos applications par domaine métier. Chaque groupe apparaît comme une section dans la liste.</p>
+    {% if groups %}
+    <table style="margin-bottom:14px">
+        <thead><tr><th>Nom du groupe</th><th></th></tr></thead>
+        <tbody>
+        {% for g in groups %}
+        <tr>
+            <td><strong>{{ g.name }}</strong></td>
+            <td>
+                <form method="post" action="{{ url_for('settings_group_delete', gid=g.id) }}"
+                      onsubmit="return confirm('Supprimer le groupe « {{ g.name }} » ? Les applications ne seront pas supprimées.')">
+                    <button type="submit" class="btn btn-danger btn-xs">✕</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+    <form method="post" action="{{ url_for('settings_group_new') }}" class="inline-add-form">
+        <input type="text" name="name" placeholder="Ex : Finance, RH, Logistique…" required>
+        <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
+    </form>
 </div>
 
 <!-- Applications -->
@@ -35,7 +63,7 @@
                 <span class="sa-icon" style="background:{{ item.app.color }}20;color:{{ item.app.color }}">{{ item.app.icon }}</span>
                 <div class="sa-info">
                     <strong>{{ item.app.name }}</strong>
-                    <span class="sa-meta">{{ item.categories|length }} catégorie(s) · {{ item.versions|length }} version(s) · {{ item.admins|length }} admin(s)</span>
+                    <span class="sa-meta">{{ item.categories|length }} catégorie(s) · {{ item.versions|length }} version(s)</span>
                 </div>
                 <span class="sa-toggle" id="toggle-{{ item.app.id }}">▼</span>
             </div>
@@ -44,9 +72,8 @@
                 <!-- Tabs navigation -->
                 <div class="tabs" id="tabs-{{ item.app.id }}">
                     <div class="tab active" onclick="showTab({{ item.app.id }}, 'info')">ℹ️ Infos</div>
-                    <div class="tab" onclick="showTab({{ item.app.id }}, 'cats')">🏷️ Catégories</div>
+                    <div class="tab" onclick="showTab({{ item.app.id }}, 'cats')">🏷️ Catégories de l'appli</div>
                     <div class="tab" onclick="showTab({{ item.app.id }}, 'vers')">🚀 Versions</div>
-                    <div class="tab" onclick="showTab({{ item.app.id }}, 'adm')">👥 Admins</div>
                 </div>
 
                 <!-- Tab Infos -->
@@ -66,6 +93,13 @@
                                 <input type="color" name="color" value="{{ item.app.color }}" style="height:42px">
                             </div>
                         </div>
+                        <label>Groupe</label>
+                        <select name="group_id">
+                            <option value="">— Sans groupe —</option>
+                            {% for g in groups %}
+                            <option value="{{ g.id }}" {% if item.app.group_id == g.id %}selected{% endif %}>{{ g.name }}</option>
+                            {% endfor %}
+                        </select>
                         <label>Description</label>
                         <textarea name="description" rows="2">{{ item.app.description }}</textarea>
                         <button type="submit" class="btn btn-primary btn-sm">💾 Enregistrer</button>
@@ -136,36 +170,6 @@
                     </form>
                 </div>
 
-                <!-- Tab Admins -->
-                <div class="tab-panel" id="tab-adm-{{ item.app.id }}" style="display:none">
-                    <p class="info-note">Les administrateurs peuvent changer le statut des feedbacks. Le nom et le service doivent correspondre exactement à ce qui est saisi ici.</p>
-                    {% if item.admins %}
-                    <table>
-                        <thead><tr><th>Nom</th><th>Service</th><th></th></tr></thead>
-                        <tbody>
-                        {% for admin in item.admins %}
-                        <tr>
-                            <td><strong>{{ admin.name }}</strong></td>
-                            <td>{{ admin.service or '—' }}</td>
-                            <td>
-                                <form method="post" action="{{ url_for('settings_admin_delete', aid=item.app.id, adid=admin.id) }}">
-                                    <button type="submit" class="btn btn-danger btn-xs">✕</button>
-                                </form>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                    {% else %}
-                    <div class="alert alert-warning">Aucun admin configuré. Sans admin, personne ne pourra changer les statuts des feedbacks.</div>
-                    {% endif %}
-                    <form method="post" action="{{ url_for('settings_admin_new', aid=item.app.id) }}" class="inline-add-form">
-                        <input type="text" name="name" placeholder="Nom" required>
-                        <input type="text" name="service" placeholder="Service" required>
-                        <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
-                    </form>
-                </div>
-
             </div>
         </div>
         {% endfor %}
@@ -191,10 +195,27 @@
             <input type="text" name="name" placeholder="Ex : Budgetix, Raccordix..." required>
             <label>Description</label>
             <textarea name="description" rows="2" placeholder="Description courte (optionnel)"></textarea>
+            <label>Groupe</label>
+            <select name="group_id">
+                <option value="">— Sans groupe —</option>
+                {% for g in groups %}
+                <option value="{{ g.id }}">{{ g.name }}</option>
+                {% endfor %}
+            </select>
             <div class="form-row-2">
                 <div>
                     <label>Icône (emoji)</label>
-                    <input type="text" name="icon" value="📱" maxlength="4">
+                    <input type="hidden" name="icon" id="newAppIcon" value="📱">
+                    <button type="button" class="emoji-trigger" id="newAppEmojiTrigger" onclick="toggleEmojiPicker()">
+                        <span id="newAppEmojiDisplay">📱</span>
+                        <span class="emoji-trigger-hint">Changer</span>
+                    </button>
+                    <div id="emojiPicker" class="emoji-picker" style="display:none">
+                        <div class="emoji-search-wrap">
+                            <input type="text" class="emoji-search" placeholder="🔍 Rechercher…" oninput="filterEmojis(this.value)">
+                        </div>
+                        <div id="emojiGrid" class="emoji-grid"></div>
+                    </div>
                 </div>
                 <div>
                     <label>Couleur principale</label>
@@ -213,13 +234,124 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<style>
+.emoji-trigger {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 8px 14px; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--surface); cursor: pointer;
+    font-size: 1.5rem; color: var(--text); transition: border-color .2s;
+}
+.emoji-trigger:hover { border-color: var(--primary); }
+.emoji-trigger-hint { font-size: .75rem; color: var(--text-muted); }
+.emoji-picker {
+    position: absolute; z-index: 1000;
+    background: #ffffff; border: 1px solid var(--border);
+    border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.18);
+    width: 320px; height: 300px; display: flex; flex-direction: column;
+    margin-top: 4px;
+}
+.emoji-grid {
+    display: grid; grid-template-columns: repeat(8, 1fr);
+    gap: 2px; padding: 8px; overflow-y: scroll; flex: 1; min-height: 0;
+}
+.emoji-search-wrap { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.emoji-search {
+    width: 100%; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: .85rem; background: var(--bg);
+    color: var(--text); box-sizing: border-box;
+}
+.emoji-btn {
+    font-size: 1.4rem; padding: 4px; border: none; background: none;
+    cursor: pointer; border-radius: 6px; transition: background .15s;
+    line-height: 1.3; display: flex; align-items: center; justify-content: center;
+}
+.emoji-btn:hover { background: var(--primary-light, #eff6ff); }
+.emoji-btn.selected { background: var(--primary-light, #dbeafe); outline: 2px solid var(--primary); }
+</style>
 <script>
+var ALL_EMOJIS = [
+  /* Tech & Apps */
+  "📱","💻","🖥️","⌨️","🖱️","🖨️","📡","📲","💾","💿","📀","🔌","🔋","📟","📠","☎️","📞",
+  /* Outils & Travail */
+  "🔧","🔨","⚙️","🛠️","🔩","🪛","🔑","🗝️","🔐","🔒","🔓","📋","📁","📂","🗂️","📊","📈","📉","📝","✏️","🖊️","🖋️","📌","📎","🗃️","🗄️","🗑️",
+  /* Communication */
+  "💬","🗨️","💭","📣","📢","📬","📭","📮","📧","📨","📩","📤","📥","🔔","🔕","📯","🎙️","🎚️","🎛️",
+  /* Finance & Commerce */
+  "💰","💳","💵","💴","💶","💷","🏦","📦","🏷️","🛒","🛍️","🤝","📜","🧾",
+  /* Santé & Sécurité */
+  "🏥","🩺","💊","🩹","🔬","🧬","🛡️","⚠️","🚨","🆘","❌","✅","❗","❓",
+  /* Bâtiment & Infra */
+  "🏢","🏗️","🏭","🏠","🏡","🏛️","🗼","⛽","🚰","🪟","🚪","🪜","🪣","🧱",
+  /* Transport & Logistique */
+  "🚗","🚕","🚙","🚌","🚎","🚑","🚒","🚓","🛻","🚛","🚚","✈️","🚂","🚢","🛵","🚲","🛺","🚁","🛸",
+  /* Nature & Environnement */
+  "🌍","🌿","🌱","🌳","☀️","🌤️","⛅","🌧️","❄️","🔥","💧","⚡","🌊","🍃","♻️",
+  /* Personnes & Équipe */
+  "👤","👥","🧑‍💼","👩‍💼","👨‍💼","🧑‍🔧","🧑‍💻","🧑‍🎨","🧑‍🏫","🧑‍⚕️","🤖","👾",
+  /* Visages & Réactions */
+  "😀","😊","🙂","😎","🤩","😍","🥳","🤔","😅","😂","🙁","😤","😡","🤯","😴","🥱",
+  /* Symboles & Formes */
+  "⭐","🌟","💫","✨","🎯","🏆","🥇","🎖️","🔖","🔴","🟠","🟡","🟢","🔵","🟣","⚫","⚪","🟤",
+  /* Divers */
+  "🎉","🎊","🎈","🎁","🎀","🪄","🔮","🧩","♟️","🎲","🃏","🎮","🕹️","🎸","🎵","🎤","📸","🔭","🧭","🗺️","🌐"
+];
+
+function buildEmojiGrid(filter) {
+    var grid = document.getElementById('emojiGrid');
+    var selected = document.getElementById('newAppIcon').value;
+    grid.innerHTML = '';
+    var list = filter ? ALL_EMOJIS.filter(function(e){
+        return e.includes(filter);
+    }) : ALL_EMOJIS;
+    list.forEach(function(em) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'emoji-btn' + (em === selected ? ' selected' : '');
+        btn.textContent = em;
+        btn.title = em;
+        btn.onclick = function() { selectEmoji(em); };
+        grid.appendChild(btn);
+    });
+}
+
+function selectEmoji(em) {
+    document.getElementById('newAppIcon').value = em;
+    document.getElementById('newAppEmojiDisplay').textContent = em;
+    document.getElementById('emojiPicker').style.display = 'none';
+    buildEmojiGrid('');
+}
+
+function toggleEmojiPicker() {
+    var picker = document.getElementById('emojiPicker');
+    var open = picker.style.display !== 'none';
+    picker.style.display = open ? 'none' : 'flex';
+    if (!open) {
+        buildEmojiGrid('');
+        picker.querySelector('.emoji-search').value = '';
+        picker.querySelector('.emoji-search').focus();
+    }
+}
+
+function filterEmojis(val) {
+    buildEmojiGrid(val);
+}
+
+document.addEventListener('click', function(e) {
+    var picker  = document.getElementById('emojiPicker');
+    var trigger = document.getElementById('newAppEmojiTrigger');
+    if (picker && !picker.contains(e.target) && e.target !== trigger && !trigger.contains(e.target)) {
+        picker.style.display = 'none';
+    }
+});
+
 function showNewAppModal() {
     document.getElementById('newAppModal').style.display = 'flex';
+    buildEmojiGrid('');
 }
 
 function closeNewAppModal() {
     document.getElementById('newAppModal').style.display = 'none';
+    document.getElementById('emojiPicker').style.display = 'none';
 }
 
 function toggleApp(appId) {
@@ -231,7 +363,7 @@ function toggleApp(appId) {
 }
 
 function showTab(appId, tabName) {
-    var tabs   = ['info', 'cats', 'vers', 'adm'];
+    var tabs   = ['info', 'cats', 'vers'];
     var tabBtns = document.querySelectorAll('#tabs-' + appId + ' .tab');
     tabs.forEach(function(t, i) {
         var panel = document.getElementById('tab-' + t + '-' + appId);

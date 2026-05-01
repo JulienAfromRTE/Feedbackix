@@ -9,38 +9,37 @@
 </div>
 
 {% if apps %}
-<div class="apps-grid">
-    {% for app in apps %}
-    <div class="app-card" style="border-top: 4px solid {{ app.color }}">
-        <div class="app-card-header">
-            <span class="app-icon-badge" style="background: {{ app.color }}20; color: {{ app.color }}">{{ app.icon }}</span>
-            <div class="app-card-info">
-                <h2>{{ app.name }}</h2>
-                {% if app.description %}
-                <p class="app-description">{{ app.description }}</p>
-                {% endif %}
-            </div>
-        </div>
-        <div class="app-card-stats">
-            <div class="app-stat">
-                <span class="stars-sm">
-                    {% for i in range(1, 6) %}
-                    <span class="star-sm {% if i <= app.avg_rating|round %}filled{% endif %}">★</span>
-                    {% endfor %}
-                </span>
-                <span class="stat-text">{{ app.avg_rating }}/5 · {{ app.rating_count }} avis</span>
-            </div>
-            <div class="app-stat">
-                <span class="stat-num">{{ app.feedback_count }}</span>
-                <span class="stat-text">feedbacks</span>
-            </div>
-        </div>
-        <a href="{{ url_for('app_detail', slug=app.slug) }}" class="btn btn-primary app-btn">
-            Voir les feedbacks →
-        </a>
+
+{% for item in grouped %}
+<div class="group-section">
+    <h2 class="group-title">{{ item.group.name }}</h2>
+    <div class="apps-grid">
+        {% for app in item.apps %}
+        {% include '_app_card.html' %}
+        {% endfor %}
     </div>
-    {% endfor %}
 </div>
+{% endfor %}
+
+{% if ungrouped %}
+{% if grouped %}
+<div class="group-section">
+    <h2 class="group-title group-title-muted">Sans catégorie</h2>
+    <div class="apps-grid">
+{% else %}
+<div class="apps-grid">
+{% endif %}
+        {% for app in ungrouped %}
+        {% include '_app_card.html' %}
+        {% endfor %}
+{% if grouped %}
+    </div>
+</div>
+{% else %}
+</div>
+{% endif %}
+{% endif %}
+
 {% else %}
 <div class="empty-state">
     <div class="empty-icon">📭</div>

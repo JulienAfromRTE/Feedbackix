@@ -10,18 +10,31 @@
 </head>
 <body>
 
+<div class="main-wrap">
+<div class="container">
+
 <header class="header">
-    <div class="brand">
-        <a href="{{ url_for('index') }}" class="brand-link">{{ APP_ICON }} {{ APP_NAME }}</a>
+    <div class="header-left">
+        <div class="header-text">
+            <h1>
+                <a href="{{ url_for('index') }}" class="title-link"><span class="title-main">Feedbackix</span></a>
+                <span class="title-subtitle">&nbsp;&nbsp;&nbsp;elle est pas fraîche mon appli ??</span>
+            </h1>
+            <div class="header-version">{{ APP_RELEASE }} — made with love by julien ❤️</div>
+        </div>
     </div>
-    <nav class="header-nav">
-        <a href="{{ url_for('index') }}" class="nav-link">🏠 Applications</a>
-        <a href="{{ url_for('settings') }}" class="nav-link">⚙️ Paramétrage</a>
-    </nav>
-    <span class="version">{{ APP_RELEASE }}</span>
+    <div class="header-banner">
+        <img src="{{ url_for('static', filename='img/gaulois.png') }}" alt="Par Toutatis !">
+    </div>
 </header>
 
-<div class="container">
+<nav class="header-nav">
+    <a href="{{ url_for('index') }}" class="nav-link">🏠 Applications</a>
+    <a href="{{ url_for('settings') }}" class="nav-link">⚙️ Paramétrage</a>
+    <span id="identityDisplay" class="nav-identity"></span>
+</nav>
+
+<div class="container-inner">
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
             {% for category, message in messages %}
@@ -35,7 +48,79 @@
     {% block content %}{% endblock %}
 </div>
 
+</div><!-- .container -->
+</div><!-- .main-wrap -->
+
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% block extra_scripts %}{% endblock %}
+
+<!-- Modal identité -->
+<div id="identityModal" class="modal-overlay" style="display:none">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>👋 Qui êtes-vous ?</h3>
+        </div>
+        <div class="modal-body">
+            <p style="color:var(--text-muted);margin-bottom:16px">Identifiez-vous pour soumettre des feedbacks et commenter. Votre identité est enregistrée dans votre navigateur.</p>
+            <label>Votre nom *</label>
+            <input type="text" id="identityName" placeholder="Prénom Nom" onkeydown="if(event.key==='Enter')saveIdentity()">
+            <label>Votre service (optionnel)</label>
+            <input type="text" id="identityService" placeholder="Ex : DSIT, RH, Comptabilité..." onkeydown="if(event.key==='Enter')saveIdentity()">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="saveIdentity()">Continuer</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function getIdentity() {
+    try { return JSON.parse(localStorage.getItem('feedbackix_identity')) || null; }
+    catch(e) { return null; }
+}
+
+function saveIdentity() {
+    var name = document.getElementById('identityName').value.trim();
+    if (!name) { document.getElementById('identityName').focus(); return; }
+    var service = document.getElementById('identityService').value.trim();
+    localStorage.setItem('feedbackix_identity', JSON.stringify({name: name, service: service}));
+    document.getElementById('identityModal').style.display = 'none';
+    updateIdentityDisplay();
+    if (window._identityCallback) { window._identityCallback({name: name, service: service}); window._identityCallback = null; }
+}
+
+function checkIdentity(callback) {
+    var id = getIdentity();
+    if (!id) {
+        window._identityCallback = callback || null;
+        document.getElementById('identityModal').style.display = 'flex';
+        setTimeout(function(){ document.getElementById('identityName').focus(); }, 50);
+    } else if (callback) {
+        callback(id);
+    }
+}
+
+function changeIdentity() {
+    var id = getIdentity();
+    document.getElementById('identityName').value = id ? id.name : '';
+    document.getElementById('identityService').value = id ? (id.service || '') : '';
+    document.getElementById('identityModal').style.display = 'flex';
+    setTimeout(function(){ document.getElementById('identityName').focus(); }, 50);
+}
+
+function updateIdentityDisplay() {
+    var id = getIdentity();
+    var el = document.getElementById('identityDisplay');
+    if (!el) return;
+    if (id) {
+        el.innerHTML = '👤 <strong>' + id.name + '</strong>' + (id.service ? ' · <em>' + id.service + '</em>' : '') +
+            ' &nbsp;<a href="#" onclick="changeIdentity();return false;" class="nav-link-small">modifier</a>';
+    } else {
+        el.innerHTML = '<a href="#" onclick="changeIdentity();return false;" class="nav-link">👤 S\'identifier</a>';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', updateIdentityDisplay);
+</script>
 </body>
 </html>

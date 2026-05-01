@@ -134,43 +134,75 @@
         {% endif %}
     </form>
 
+    {% set status_icons = {'nouveau':'✨','en_cours':'⏳','traite':'✓','en_attente':'⏸','abandonne':'✕'} %}
+    {% set priority_icons = {'basse':'▽','normale':'▬','haute':'▲','critique':'🔥'} %}
+
     {% if feedbacks %}
-    <div class="feedback-list">
+    <div class="feedback-cards">
         {% for fb in feedbacks %}
-        <div class="feedback-row">
+        <article class="feedback-card status-border-{{ fb.status }}">
             <!-- Colonne vote -->
-            <div class="vote-col">
-                <button class="vote-btn {% if fb.id in voted_ids %}voted{% endif %}"
+            <div class="fc-vote-col">
+                <button class="fc-vote-btn {% if fb.id in voted_ids %}voted{% endif %}"
                         data-fid="{{ fb.id }}"
                         {% if fb.id in voted_ids %}disabled title="Déjà voté"{% endif %}
                         onclick="voteFromList(this, {{ fb.id }})">
-                    👍
+                    <span class="fc-vote-arrow">▲</span>
+                    <span class="fc-vote-num" id="votes-{{ fb.id }}">{{ fb.vote_count }}</span>
+                    <span class="fc-vote-lbl">{{ 'vote' if fb.vote_count == 1 else 'votes' }}</span>
                 </button>
-                <span class="vote-num" id="votes-{{ fb.id }}">{{ fb.vote_count }}</span>
             </div>
             <!-- Contenu -->
-            <div class="feedback-body">
-                <div class="feedback-badges">
-                    {% if fb.cat_name %}
-                    <span class="badge cat-badge" style="background:{{ fb.cat_color }}20;color:{{ fb.cat_color }};border:1px solid {{ fb.cat_color }}40">{{ fb.cat_name }}</span>
-                    {% endif %}
-                    <span class="badge priority-badge priority-{{ fb.priority }}">{{ PRIORITY_LABELS[fb.priority][0] }}</span>
-                    <span class="badge status-badge status-{{ fb.status }}">{{ STATUS_LABELS[fb.status][0] }}</span>
+            <div class="fc-body">
+                <!-- Ligne 1 : catégorie + titre + statut -->
+                <div class="fc-title-row">
+                    <div class="fc-title-block">
+                        <a href="{{ url_for('feedback_detail', slug=app.slug, fid=fb.id) }}" class="fc-title">{{ fb.title }}</a>
+                        {% if fb.cat_name %}
+                        <span class="badge cat-badge" style="background:{{ fb.cat_color }}15;color:{{ fb.cat_color }};border-color:{{ fb.cat_color }}45">
+                            <span class="cat-dot" style="background:{{ fb.cat_color }}"></span>{{ fb.cat_name }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    <div class="fc-labeled-badge">
+                        <span class="fc-badge-label">Statut</span>
+                        <span class="badge status-badge status-{{ fb.status }}">
+                            <span class="badge-ico">{{ status_icons[fb.status] }}</span>{{ STATUS_LABELS[fb.status][0] }}
+                        </span>
+                    </div>
                 </div>
-                <a href="{{ url_for('feedback_detail', slug=app.slug, fid=fb.id) }}" class="feedback-title-link">{{ fb.title }}</a>
-                <div class="feedback-meta-line">
-                    {% if fb.is_anonymous %}
-                    <span>👤 Anonyme</span>
-                    {% else %}
-                    <span>👤 {{ fb.author_name }}{% if fb.author_service %} · {{ fb.author_service }}{% endif %}</span>
-                    {% endif %}
-                    <span>📅 {{ fb.created_at[:10] }}</span>
-                    {% if fb.comment_count > 0 %}
-                    <span>💬 {{ fb.comment_count }} commentaire{{ 's' if fb.comment_count > 1 else '' }}</span>
+                <!-- Ligne 2 : extrait de la description -->
+                {% set excerpt = fb.content_html | striptags | trim %}
+                {% if excerpt %}
+                <p class="fc-excerpt">{{ excerpt | truncate(160, killwords=False, end='…') }}</p>
+                {% endif %}
+                <!-- Ligne 3 : priorité + meta + version -->
+                <div class="fc-footer-row">
+                    <div class="fc-footer-left">
+                        <div class="fc-labeled-badge">
+                            <span class="fc-badge-label">Priorité</span>
+                            <span class="badge priority-badge priority-{{ fb.priority }}">
+                                <span class="badge-ico">{{ priority_icons[fb.priority] }}</span>{{ PRIORITY_LABELS[fb.priority][0] }}
+                            </span>
+                        </div>
+                        <span class="fc-meta-sep">·</span>
+                        <div class="fc-meta">
+                            <span class="fc-meta-item">👤 {{ fb.author_name or 'Anonyme' }}{% if fb.author_service %} · <em>{{ fb.author_service }}</em>{% endif %}</span>
+                            <span class="fc-meta-item">📅 {{ fb.created_at[:10] }}</span>
+                            {% if fb.comment_count > 0 %}
+                            <span class="fc-meta-item">💬 {{ fb.comment_count }} réponse{{ 's' if fb.comment_count > 1 else '' }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if fb.planned_version %}
+                    <div class="fc-labeled-badge">
+                        <span class="fc-badge-label">Sera corrigé dans</span>
+                        <span class="badge version-badge">🚀 {{ fb.planned_version }}</span>
+                    </div>
                     {% endif %}
                 </div>
             </div>
-        </div>
+        </article>
         {% endfor %}
     </div>
     {% else %}
@@ -198,10 +230,8 @@
                 <span class="star-pick" data-val="5" onmouseenter="hlStars(5)" onmouseleave="resetStars()" onclick="pickStar(5)">★</span>
             </div>
             <input type="hidden" id="pickedStar" value="0">
-            <label>Votre nom (optionnel)</label>
-            <input type="text" id="raterName" placeholder="Votre nom">
-            <label>Votre service (optionnel)</label>
-            <input type="text" id="raterService" placeholder="Votre service">
+            <input type="hidden" id="raterName">
+            <input type="hidden" id="raterService">
         </div>
         <div class="modal-footer">
             <button class="btn btn-primary" onclick="submitRating()">Envoyer mon avis</button>
@@ -252,7 +282,24 @@
 <script>
 var pickedStarVal = 0;
 
+document.addEventListener('DOMContentLoaded', function() {
+    checkIdentity(function(id) {
+        document.getElementById('raterName').value = id.name;
+        document.getElementById('raterService').value = id.service || '';
+    });
+    var id = getIdentity();
+    if (id) {
+        document.getElementById('raterName').value = id.name;
+        document.getElementById('raterService').value = id.service || '';
+    }
+});
+
 function showRatingModal() {
+    var id = getIdentity();
+    if (id) {
+        document.getElementById('raterName').value = id.name;
+        document.getElementById('raterService').value = id.service || '';
+    }
     document.getElementById('ratingModal').style.display = 'flex';
 }
 
